@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -1384,5 +1385,87 @@ describe("CutterBridgeClient: scenario group 9", () => {
     expect(result.value.limitations).not.toContain(
       "Command completion or its output could not be confirmed; do not retry automatically because the command may have produced partial or persistent effects.",
     );
+  });
+});
+
+describe("CutterBridgeClient: scenario group 9: configured directory normalization", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("reports the expanded tilde directory instead of the literal ~ path", async () => {
+    await expect(
+      new CutterBridgeClient(
+        { REA_CUTTER_BRIDGE_DIR: "~/bridge-repro" },
+        { platform: "darwin" },
+      ).listSessions(),
+    ).resolves.toMatchObject({
+      bridge_directory: join(homedir(), "bridge-repro"),
+      discovery_status: "no_live_bridge_found",
+    });
+  });
+
+  it("expands a bare tilde to the caller home", async () => {
+    await expect(
+      new CutterBridgeClient(
+        { REA_CUTTER_BRIDGE_DIR: "~" },
+        { platform: "darwin" },
+      ).listSessions(),
+    ).resolves.toMatchObject({ bridge_directory: homedir() });
+  });
+
+  it("treats an empty configured directory as unset", async () => {
+    await expect(
+      new CutterBridgeClient(
+        { REA_CUTTER_BRIDGE_DIR: "" },
+        { platform: "darwin" },
+      ).listSessions(),
+    ).resolves.toMatchObject({
+      bridge_directory: join(homedir(), ".cache", "rea", "cutter-bridge"),
+    });
+  });
+
+  it("keeps ~name paths and regular directories verbatim", async () => {
+    await expect(
+      new CutterBridgeClient(
+        { REA_CUTTER_BRIDGE_DIR: "~other/bridge" },
+        { platform: "darwin" },
+      ).listSessions(),
+    ).resolves.toMatchObject({ bridge_directory: "~other/bridge" });
+    await expect(
+      new CutterBridgeClient(
+        { REA_CUTTER_BRIDGE_DIR: "/tmp/rea-cutter-verbatim-fixture" },
+        { platform: "darwin" },
+      ).listSessions(),
+    ).resolves.toMatchObject({
+      bridge_directory: "/tmp/rea-cutter-verbatim-fixture",
+    });
+  });
+
+  it("discovers sessions published under a tilde bridge directory", async () => {
+    if (process.platform === "win32") return; // os.homedir() honors HOME on POSIX.
+    const home = await mkdtemp(join(tmpdir(), "rea-cutter-home-"));
+    const bridgeDirectory = join(home, "bridge-repro");
+    await mkdir(bridgeDirectory, { recursive: true });
+    await chmod(bridgeDirectory, 0o700);
+    const sessionId = "27d3e3f1-f1e5-49ae-91ec-95af1f343a5a";
+    const token = "synthetic-cutter-bridge-token-for-test";
+    const server = authenticatedServer(token, sessionId, () => {});
+    try {
+      const port = await listen(server);
+      await writeDescriptor(bridgeDirectory, sessionId, port, token);
+      vi.stubEnv("HOME", home);
+      await expect(
+        createClient({
+          REA_CUTTER_BRIDGE_DIR: "~/bridge-repro",
+        }).listSessions(),
+      ).resolves.toMatchObject({
+        bridge_directory: bridgeDirectory,
+        discovery_status: "sessions_found",
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });

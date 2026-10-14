@@ -240,6 +240,22 @@ export interface CutterBridgeDiscovery {
     | "not_checked";
 }
 
+/**
+ * Resolve the caller-configured bridge directory. An empty value means
+ * "unset" and falls back to the platform default, and a leading `~` resolves
+ * to the caller's home directory the same way the Python bridge resolves it
+ * before publishing its descriptor. `~name/...` names a different user's home
+ * and stays untouched.
+ */
+const resolveConfiguredBridgeDirectory = (
+  configured: string | undefined,
+): string | undefined => {
+  if (configured === undefined || configured === "") return undefined;
+  if (configured === "~") return homedir();
+  if (configured.startsWith("~/")) return join(homedir(), configured.slice(2));
+  return configured;
+};
+
 /** Discovers and communicates with REA Python bridge plugins in live Cutter processes. */
 export class CutterBridgeClient {
   readonly #directory: string;
@@ -279,7 +295,7 @@ export class CutterBridgeClient {
           }
         : undefined);
     this.#directory =
-      configured ??
+      resolveConfiguredBridgeDirectory(configured) ??
       (this.#platform === "win32" && localAppData
         ? join(localAppData, "REA", "CutterBridge")
         : join(homedir(), ".cache", "rea", "cutter-bridge"));
