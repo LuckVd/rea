@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createServer } from "node:net";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -12,9 +13,11 @@ import {
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { readWithoutFifoWriter } from "../../fixtures/fifoInput.js";
 import { CutterBridgeClient } from "../../../src/cutter/CutterBridgeClient.js";
 import { CutterBridgeService } from "../../../src/cutter/CutterBridgeService.js";
 
@@ -1486,5 +1489,43 @@ describe("CutterBridgeClient: scenario group 9", () => {
     expect(result.value.limitations).not.toContain(
       "Command completion or its output could not be confirmed; do not retry automatically because the command may have produced partial or persistent effects.",
     );
+  });
+});
+
+describe("CutterBridgeClient: FIFO descriptor admission", () => {
+  let directory: string | undefined;
+
+  afterEach(async () => {
+    if (directory !== undefined)
+      await rm(directory, { recursive: true, force: true });
+    directory = undefined;
+  });
+
+  it("skips a writerless FIFO descriptor and completes discovery", async () => {
+    if (process.platform === "win32") return;
+    directory = await mkdtemp(join(tmpdir(), "rea-cutter-fifo-descriptor-"));
+    const sessionId = "27d3e3f1-f1e5-49ae-91ec-95af1f343a5a";
+    await writeDescriptor(
+      directory,
+      sessionId,
+      1234,
+      "synthetic-cutter-bridge-token-for-test",
+    );
+    const fifoName = "cutter-999999-00000000-0000-4000-8000-000000000001.json";
+    const fifoPath = join(directory, fifoName);
+    await promisify(execFile)("mkfifo", [fifoPath]);
+    const outcome = await readWithoutFifoWriter(fifoPath, () =>
+      new CutterBridgeClient({
+        REA_CUTTER_BRIDGE_DIR: directory,
+      }).listDescriptors(),
+    );
+    expect(outcome.state).toBe("completed");
+    if (outcome.state !== "completed")
+      throw new Error("Descriptor discovery blocked on a writerless FIFO");
+    expect(outcome.result).toHaveLength(1);
+    expect(outcome.result[0]).toMatchObject({
+      session_id: sessionId,
+      pid: process.pid,
+    });
   });
 });

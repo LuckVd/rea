@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection } from "node:net";
-import { lstat, open, opendir } from "node:fs/promises";
+import { lstat, opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -13,6 +12,7 @@ import {
 } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
+import { openRegularFile } from "../filesystem/RegularFile.js";
 import { requireWindowsNativeAuthority } from "../windows/WindowsNativeLoader.js";
 import { readBoundedFileBytes } from "../process/BoundedFileBytes.js";
 import { homeDirectoryFromEnvironment } from "../config/homeDirectory.js";
@@ -729,11 +729,14 @@ export class CutterBridgeClient {
             MAX_DESCRIPTOR_BYTES,
           );
         } else {
-          const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
-          file = await open(join(this.#directory, entry), flags);
+          // POSIX: open with O_NONBLOCK so a FIFO candidate cannot block
+          // discovery; openRegularFile rejects non-regular files and owns
+          // closing the descriptor on failed admission.
+          file = await openRegularFile(join(this.#directory, entry), {
+            symlinks: "reject",
+          });
           const info = await file.stat();
           if (
-            !info.isFile() ||
             info.size > MAX_DESCRIPTOR_BYTES ||
             info.uid !== currentUid ||
             (info.mode & 0o077) !== 0
