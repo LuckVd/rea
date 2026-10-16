@@ -355,6 +355,43 @@ describe("PE resource section virtual extent", () => {
     });
   });
 
+  it("treats a zero-extent section inside the resource interval as non-overlapping", async () => {
+    const fixture = peResourceFixture(false, [
+      { type: 10, name: 1, language: 1033, payload: Buffer.from("DATA") },
+    ]);
+    fixture.bytes.writeUInt16LE(2, 0x86);
+    const section = fixture.sectionAt + 40;
+    fixture.bytes.writeUInt32LE(0, section + 8); // VirtualSize
+    fixture.bytes.writeUInt32LE(0x2001, section + 12); // VirtualAddress
+    fixture.bytes.writeUInt32LE(0, section + 16); // SizeOfRawData
+
+    const result = peResourcesSchema.parse(await parse(fixture.bytes));
+    expect(result.coverage).toMatchObject({ status: "complete", resources: 1 });
+    expect(result.resources[0]?.payload).toMatchObject({
+      rva: 0x2000 + 88,
+      location: { offset: 0x400 + 88, bytes: 4 },
+      sha256: createHash("sha256").update("DATA").digest("hex"),
+    });
+  });
+
+  it("treats a zero-extent section inside a header-backed payload as non-overlapping", async () => {
+    const fixture = peResourceFixture();
+    fixture.bytes.writeUInt32LE(0x100, fixture.dataOffsets[0]);
+    fixture.bytes.writeUInt32LE(4, (fixture.dataOffsets[0] ?? 0) + 4);
+    fixture.bytes.writeUInt16LE(2, 0x86);
+    const section = fixture.sectionAt + 40;
+    fixture.bytes.writeUInt32LE(0, section + 8); // VirtualSize
+    fixture.bytes.writeUInt32LE(0x102, section + 12); // VirtualAddress
+    fixture.bytes.writeUInt32LE(0, section + 16); // SizeOfRawData
+
+    const result = peResourcesSchema.parse(await parse(fixture.bytes));
+    expect(result.coverage).toMatchObject({ status: "complete", resources: 5 });
+    expect(result.resources[0]?.payload.location).toEqual({
+      offset: 0x100,
+      bytes: 4,
+    });
+  });
+
   it("maps raw bytes when VirtualSize is zero, as the image loader does", async () => {
     const fixture = peResourceFixture();
     fixture.bytes.writeUInt32LE(0, fixture.sectionAt + 8);
