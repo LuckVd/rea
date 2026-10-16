@@ -117,6 +117,13 @@ export class DarwinProcessOwnershipInspectionError extends Error {
   }
 
   readonly compilerOutcome: DarwinCompilerOutcome | undefined;
+
+  /**
+   * Owned-root cleanup rejection observed while this failure propagated. The
+   * root stays owned for a later cleanup retry; this never replaces the
+   * primary compilation failure it is attached to.
+   */
+  cleanupFailure: unknown = undefined;
 }
 
 /** Explicit, bounded outcome from compiling REA's Darwin ownership helper. */
@@ -368,9 +375,28 @@ export const createDarwinProcessRunTokenReader = (
       return output;
     } catch (cause: unknown) {
       const ownsRoot = operationRoot !== undefined && root === operationRoot;
+      let cleanupFailure: unknown;
       if (operationRoot !== undefined) {
-        if (ownsRoot) await cleanupRoot(operationRoot);
-        else await rm(operationRoot, { recursive: true, force: true });
+        try {
+          if (ownsRoot) await cleanupRoot(operationRoot);
+          else await rm(operationRoot, { recursive: true, force: true });
+        } catch (cleanupCause: unknown) {
+          // A failed removal keeps the root owned for a later cleanup retry;
+          // report the rejection separately instead of replacing the primary
+          // failure below.
+          cleanupFailure = cleanupCause;
+        }
+      }
+      if (cleanupFailure !== undefined && cause instanceof Error) {
+        if (cause instanceof DarwinProcessOwnershipInspectionError)
+          cause.cleanupFailure = cleanupFailure;
+        else
+          Object.defineProperty(cause, "cleanupFailure", {
+            value: cleanupFailure,
+            enumerable: false,
+            configurable: true,
+            writable: true,
+          });
       }
       throw cause;
     }
