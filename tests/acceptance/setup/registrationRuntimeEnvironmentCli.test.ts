@@ -175,9 +175,12 @@ cliTest(
       HOME: home,
       USERPROFILE: home,
       XDG_CONFIG_HOME: join(home, ".config"),
-      // Select an absent launcher so host-installed Hopper cannot make this
-      // configuration merge test plan an unrelated provider-environment edit.
+      // Select absent launchers and installation directories so host-installed
+      // providers cannot make this configuration merge test plan an unrelated
+      // provider-environment edit.
       HOPPER_LAUNCHER_PATH: join(home, "missing-hopper"),
+      GHIDRA_INSTALL_DIR: join(home, "missing-ghidra"),
+      JAVA_HOME: join(home, "missing-jdk"),
     };
     const run = (args: readonly string[]) =>
       cli.run({ arguments: [...args, "--json"], cwd: home, environment });
