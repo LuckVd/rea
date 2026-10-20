@@ -600,6 +600,35 @@ it("excludes explicit literals from XML, HTTP byte views, member coordinates and
     expect(text).not.toContain(secret);
 });
 
+it("keeps records with empty SAZ request and response members and reports them", async () => {
+  const path = await fixture(
+    await archive([
+      ["raw/9_c.txt", Buffer.alloc(0)],
+      ["raw/9_s.txt", Buffer.alloc(0)],
+    ]),
+  );
+  const capture = webNetworkCaptureSchema.parse(
+    (await cli(path)).normalized_result,
+  );
+  expect(capture).toMatchObject({
+    total_records: 1,
+    records: [
+      {
+        ordinal: 0,
+        location: {
+          kind: "archive-members",
+          members: ["raw/9_c.txt", "raw/9_s.txt"],
+        },
+        reported: { session_id: "9", request: null, response: null },
+        limitations: [
+          "SAZ request member was empty; no HTTP request was recorded.",
+          "SAZ response member was empty; no HTTP response was recorded.",
+        ],
+      },
+    ],
+  });
+});
+
 it("retains folded headers, stored chunk framing and BOM-marked UTF-16 metadata", async () => {
   const body = "3\r\none\r\n0\r\n\r\n";
   const path = await fixture(
