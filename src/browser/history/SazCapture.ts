@@ -90,6 +90,7 @@ export const decodeSazCapture = async (
         websocket: null,
         grpc: null,
       };
+      const limitations: string[] = [];
       for (const entry of entries) {
         const stream = await reader.open(entry);
         const chunks: Buffer[] = [];
@@ -114,17 +115,21 @@ export const decodeSazCapture = async (
             "SAZ member does not match its declared size.",
           );
         const bytes = Buffer.concat(chunks, length);
-        if (entry.path.endsWith("_c.txt"))
-          source.request = {
-            member: entry.path,
-            ...decodeSazHttp(bytes, true),
-          };
-        else if (entry.path.endsWith("_s.txt"))
-          source.response = {
-            member: entry.path,
-            ...decodeSazHttp(bytes, false),
-          };
-        else if (entry.path.endsWith("_m.xml"))
+        if (entry.path.endsWith("_c.txt")) {
+          const message = decodeSazHttp(bytes, true);
+          if (message === null)
+            limitations.push(
+              "SAZ request member was empty; no HTTP request was recorded.",
+            );
+          else source.request = { member: entry.path, ...message };
+        } else if (entry.path.endsWith("_s.txt")) {
+          const message = decodeSazHttp(bytes, false);
+          if (message === null)
+            limitations.push(
+              "SAZ response member was empty; no HTTP response was recorded.",
+            );
+          else source.response = { member: entry.path, ...message };
+        } else if (entry.path.endsWith("_m.xml"))
           source.metadata = {
             member: entry.path,
             document: decodeSazMetadata(bytes),
@@ -142,7 +147,7 @@ export const decodeSazCapture = async (
           members: entries.map((entry) => entry.path),
         },
         ...projectSazRecord(source, sensitiveValues),
-        limitations: [],
+        limitations,
       });
     }
     const container = projectSazRecord({ members: inventory }, sensitiveValues);

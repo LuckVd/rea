@@ -2,6 +2,7 @@ import { CaptureFormatError } from "./CaptureFormatError.js";
 
 /** Preserve ordered HTTP fields and the stored body; never dechunk, decompress or fetch. */
 export const decodeSazHttp = (bytes: Buffer, request: boolean) => {
+  if (bytes.length === 0) return null;
   const crlfSplit = bytes.indexOf("\r\n\r\n");
   // Once a CRLF separator is found, only an earlier LF separator can win.
   // Avoid searching an otherwise unrelated large body a second time.
